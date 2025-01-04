@@ -7,6 +7,12 @@ import requests
 import time
 import csv
 import os
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 
 class repoInfo:
     def __init__(self, repo_name: str, repo_owner: str, repo_token: str = None):
@@ -817,7 +823,7 @@ class dataExtraction:
 def main():
     repo_name = ['geo-centroid']
     repo_owners = ['aadityayadav']
-    repo_tokens = ['']
+    repo_tokens = [GITHUB_TOKEN]
     pr_number = 1
 
     extraction = dataExtraction(repo_name, repo_owners, repo_tokens)
