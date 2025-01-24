@@ -977,12 +977,12 @@ def main():
 
     extraction = dataExtraction(repo_name, repo_owners, repo_tokens)
 
-    # extraction.extract_general_overview()
+    extraction.extract_general_overview()
     extraction.extract_aggregate_metrics()
 
-    # extraction.extract_data_commit_contributor()
+    extraction.extract_data_commit_contributor()
 
-    # extraction.extract_data_pr()
+    extraction.extract_data_pr()
 
     
 
