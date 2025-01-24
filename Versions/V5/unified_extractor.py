@@ -151,104 +151,12 @@ class dataExtraction:
                 print("Error fetching rate limit. Retrying...")
                 time.sleep(10)
 
-    def extract_commit_data_per_pr(self, repo_info, pr_number: int) -> list or None:
-        '''
-        Extracts commit data per pull request from the repository using the GitHub API.
-        '''
-        # Initialize counters and metrics
-        total_commits = 0
-        total_lines_changed = 0
-        total_lines_added = 0
-        total_lines_deleted = 0
-        total_contributors = set()
-        total_comment_count = 0
-        total_files_changed = 0
-        rate_of_commits = 0
-        rate_of_lines_changed = 0
-        rate_of_contributors = 0
-        rate_of_comment_count = 0
-        headers = self.get_headers()
-
-
-        github_object = Github() if repo_info.repo_token is None else Github(auth=Auth.Token(repo_info.repo_token))
-        repo = github_object.get_repo(f"{repo_info.repo_owner}/{repo_info.repo_name}")
-        pr_list = repo.get_pulls(state='all')
-        
-        page_no = 0
-
-        for pr in pr_list:
-            pr_number = pr.number
-
-        while True:
-            self.handle_rate_limit()
-            page_no += 1
-            base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls/{pr_number}/commits?state=all&page={page_no}'
-
-            response = requests.get(base_url, headers=headers)
-
-            if response.status_code == 200:
-                commits = response.json()
-
-                if not commits:
-                    break
-
-                total_commits += len(commits)
-
-                for commit in commits:
-                    # Handle rate limits before fetching detailed commit data
-                    self.handle_rate_limit()
-
-                    # Fetch detailed commit data to get 'files'
-                    commit_details_url = f"https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/commits/{commit['sha']}"
-                    details_response = requests.get(commit_details_url, headers=headers)
-
-                    if details_response.status_code == 200:
-                        commit_details = details_response.json()
-
-                        # Extract file change details if present
-                        total_files_changed += len(commit_details.get('files', []))
-
-                        # Extract lines changed
-                        stats = commit_details.get('stats', {})
-                        total_lines_changed += stats.get('total', 0)
-                        total_lines_added += stats.get('additions', 0)
-                        total_lines_deleted += stats.get('deletions', 0)
-
-                        # Extract contributors
-                        author = commit.get('author')
-                        if author and 'login' in author:
-                            total_contributors.add(author['login'])
-
-                        # Extract comment count
-                        total_comment_count += commit['commit'].get('comment_count', 0)
-
-                    else:
-                        print(f"Failed to fetch commit details for SHA: {commit['sha']} in PR: {pr_number}")
-
-            elif response.status_code == 403:
-                print(f"Forbidden error for PR: {pr_number}, Repo: {repo_info.repo_name}. Check your token and permissions.")
-                break
-
-            else:
-                # Stop extraction on error
-                print("Stopping commit data extraction. Commit extraction limit reached or failed.")
-                print(f"For PR: {pr_number}. On page number: {page_no}. Status code: {response.status_code}. Repo: {repo_info.repo_name}")
-                break
-
-        # Calculate rates
-        if total_files_changed > 0:
-            rate_of_commits = total_commits / total_files_changed
-            rate_of_lines_changed = total_lines_changed / total_files_changed
-            rate_of_contributors = len(total_contributors) / total_files_changed
-            rate_of_comment_count = total_comment_count / total_files_changed
-        else:
-            rate_of_commits = 0
-            rate_of_lines_changed = 0
-            rate_of_contributors = 0
-            rate_of_comment_count = 0
-
-        # Parameter names and extracted data
-        param_names = [
+    def extract_commit_data_per_pr(self, repo_info) -> list:
+        """
+        Extracts commit data for all pull requests in the repository using the GitHub API.
+        """
+        all_data = [[
+            'PR Number',
             'Total Commits',
             'Total Lines Changed',
             'Total Lines Added',
@@ -260,96 +168,113 @@ class dataExtraction:
             'Rate of Lines Changes',
             'Rate of Contributors',
             'Rate of Comment Count'
-        ]
+        ]]
 
-        extracted_data = [
-            total_commits,
-            total_lines_changed,
-            total_lines_added,
-            total_lines_deleted,
-            len(total_contributors),
-            total_comment_count,
-            total_files_changed,
-            rate_of_commits,
-            rate_of_lines_changed,
-            rate_of_contributors,
-            rate_of_comment_count,
-        ]
-
-        return [param_names, extracted_data]
-
-    def extract_file_data_per_pr(self, repo_info, pr_number: int) -> list or []:
-        '''
-        Extracts file data per pull request from the repository using the GitHub API
-        '''
-        # Limits 3000 files per PR which should be within range for most PRs
-        
-        total_files_changed = 0
-        total_lines_added = 0
-        total_lines_deleted = 0
-        total_changes = 0
-        total_added_files = 0
-        total_modified_files = 0
-        total_removed_files = 0
-        total_renamed_files = 0
-        total_copied_files = 0
-        rate_of_changes = 0
-        rate_of_added_files = 0
-        rate_of_modified_files = 0
-        rate_of_removed_files = 0
-        rate_of_renamed_files = 0
-        rate_of_copied_files = 0
-
-        # We have to loop over all pages to get every file
         page_no = 0
+        headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token else {}
+        headers['Accept'] = 'application/vnd.github.v3+json'
 
         while True:
             page_no += 1
-            base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls/{pr_number}/files?state=all&page={page_no}'
-            headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token is not None else {}
-            headers['Accept'] = 'application/vnd.github.v3+json'
-
+            base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls?state=all&sort=created&direction=asc&page={page_no}'
             response = requests.get(base_url, headers=headers)
 
-            if response.status_code == 200:
-                files = response.json()
-                total_files_changed += len(files)
-
-                for file in files:
-                    total_lines_added += file['additions']
-                    total_lines_deleted += file['deletions']
-                    total_changes += file['changes']
-                    total_added_files += int(file['status'] == 'added')
-                    total_modified_files += int(file['status'] == 'modified')
-                    total_removed_files += int(file['status'] == 'removed')
-                    total_renamed_files += int(file['status'] == 'renamed')
-                    total_copied_files += int(file['status'] == 'copied')
-
-            else:
-                print("Stopping file data extraction. File extraction limit reached or failed.")
-                print(f"For PR: {pr_number}. On page number: {page_no}. Status code: {response.status_code}. Repo: {repo_info.repo_name}")
+            if response.status_code != 200:
+                print(f"Failed to fetch PRs. Status: {response.status_code}")
                 break
-            
-        if total_files_changed > 0:
-            rate_of_changes = total_changes / total_files_changed
-            rate_of_added_files = total_added_files / total_files_changed
-            rate_of_modified_files = total_modified_files / total_files_changed
-            rate_of_removed_files = total_removed_files / total_files_changed
-            rate_of_renamed_files = total_renamed_files / total_files_changed
-            rate_of_copied_files = total_copied_files / total_files_changed
-        elif total_files_changed == 0:
-            print(f"No files found in PR: {pr_number}. Skipping file data extraction.")
-            return [[], []]
-        else:
-            rate_of_changes = 0
-            rate_of_added_files = 0
-            rate_of_modified_files = 0
-            rate_of_removed_files = 0
-            rate_of_renamed_files = 0
-            rate_of_copied_files = 0
 
-        param_names = [
-            'Total Files Changes',
+            prs = response.json()
+            if not prs:  # No more PRs
+                break
+
+            for pr in prs:
+                try:
+                    pr_number = pr['number']
+                    print(f"Processing PR #{pr_number}...")
+
+                    # Initialize counters
+                    total_commits = 0
+                    total_lines_changed = 0
+                    total_lines_added = 0
+                    total_lines_deleted = 0
+                    total_contributors = set()
+                    total_comment_count = 0
+                    total_files_changed = 0
+
+                    # Fetch commit data for the PR
+                    commit_page_no = 0
+                    while True:
+                        commit_page_no += 1
+                        commit_url = f"https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls/{pr_number}/commits?page={commit_page_no}"
+                        commit_response = requests.get(commit_url, headers=headers)
+
+                        if commit_response.status_code != 200:
+                            print(f"Failed to fetch commits for PR #{pr_number}. Status: {commit_response.status_code}")
+                            break
+
+                        commits = commit_response.json()
+                        if not commits:
+                            break
+
+                        total_commits += len(commits)
+
+                        for commit in commits:
+                            # Fetch commit details
+                            commit_sha = commit['sha']
+                            details_url = f"https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/commits/{commit_sha}"
+                            details_response = requests.get(details_url, headers=headers)
+
+                            if details_response.status_code == 200:
+                                details = details_response.json()
+                                total_files_changed += len(details.get('files', []))
+
+                                stats = details.get('stats', {})
+                                total_lines_changed += stats.get('total', 0)
+                                total_lines_added += stats.get('additions', 0)
+                                total_lines_deleted += stats.get('deletions', 0)
+
+                                author = commit.get('author')
+                                if author and 'login' in author:
+                                    total_contributors.add(author['login'])
+
+                                total_comment_count += commit['commit'].get('comment_count', 0)
+
+                    # Calculate rates
+                    rate_of_commits = total_commits / total_files_changed if total_files_changed > 0 else 0
+                    rate_of_lines_changed = total_lines_changed / total_files_changed if total_files_changed > 0 else 0
+                    rate_of_contributors = len(total_contributors) / total_files_changed if total_files_changed > 0 else 0
+                    rate_of_comment_count = total_comment_count / total_files_changed if total_files_changed > 0 else 0
+
+                    # Append data row
+                    all_data.append([
+                        pr_number,
+                        total_commits,
+                        total_lines_changed,
+                        total_lines_added,
+                        total_lines_deleted,
+                        len(total_contributors),
+                        total_comment_count,
+                        total_files_changed,
+                        rate_of_commits,
+                        rate_of_lines_changed,
+                        rate_of_contributors,
+                        rate_of_comment_count
+                    ])
+
+                except Exception as e:
+                    print(f"Error processing PR {pr['number']}: {e}")
+
+        return all_data
+
+
+    def extract_file_data_per_pr(self, repo_info) -> list:
+        '''
+        Extracts file data for all pull requests using the GitHub API.
+        '''
+        # Add headers
+        all_file_data = [[
+            'PR Number',
+            'Total Files Changed',
             'Total Lines Added',
             'Total Lines Deleted',
             'Total Changes',
@@ -357,34 +282,83 @@ class dataExtraction:
             'Total Modified Files',
             'Total Removed Files',
             'Total Renamed Files',
-            'Total Copied Files',
-            'Rate of Changes',
-            'Rate of Added Files',
-            'Rate of Modified Files',
-            'Rate of Removed Files',
-            'Rate of Renamed Files',
-            'Rate of Copied Files'
-        ]
+            'Total Copied Files'
+        ]]
 
-        extracted_data = [
-            total_files_changed,
-            total_lines_added,
-            total_lines_deleted,
-            total_changes,
-            total_added_files,
-            total_modified_files,
-            total_removed_files,
-            total_renamed_files,
-            total_copied_files,
-            rate_of_changes,
-            rate_of_added_files,
-            rate_of_modified_files,
-            rate_of_removed_files,
-            rate_of_renamed_files,
-            rate_of_copied_files
-        ]
+        page_no = 0
+        while True:
+            page_no += 1
+            base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls?state=all&sort=created&direction=asc&page={page_no}'
+            headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token else {}
+            headers['Accept'] = 'application/vnd.github.v3+json'
 
-        return [param_names, extracted_data]
+            response = requests.get(base_url, headers=headers)
+            if response.status_code != 200:
+                print(f"Failed to fetch PRs. Status code: {response.status_code}")
+                break
+
+            prs = response.json()
+            if not prs:
+                break
+
+            for pr in prs:
+                try:
+                    pr_number = pr['number']
+                    print(f"Processing files for PR: {pr_number}")
+
+                    # Initialize counters
+                    total_files_changed = 0
+                    total_lines_added = 0
+                    total_lines_deleted = 0
+                    total_changes = 0
+                    total_added_files = 0
+                    total_modified_files = 0
+                    total_removed_files = 0
+                    total_renamed_files = 0
+                    total_copied_files = 0
+
+                    file_page_no = 0
+                    while True:
+                        file_page_no += 1
+                        file_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls/{pr_number}/files?page={file_page_no}'
+                        file_response = requests.get(file_url, headers=headers)
+
+                        if file_response.status_code != 200:
+                            break
+
+                        files = file_response.json()
+                        if not files:
+                            break
+
+                        total_files_changed += len(files)
+                        for file in files:
+                            total_lines_added += file['additions']
+                            total_lines_deleted += file['deletions']
+                            total_changes += file['changes']
+                            total_added_files += int(file['status'] == 'added')
+                            total_modified_files += int(file['status'] == 'modified')
+                            total_removed_files += int(file['status'] == 'removed')
+                            total_renamed_files += int(file['status'] == 'renamed')
+                            total_copied_files += int(file['status'] == 'copied')
+
+                    # Append row data
+                    all_file_data.append([
+                        pr_number,
+                        total_files_changed,
+                        total_lines_added,
+                        total_lines_deleted,
+                        total_changes,
+                        total_added_files,
+                        total_modified_files,
+                        total_removed_files,
+                        total_renamed_files,
+                        total_copied_files
+                    ])
+
+                except Exception as e:
+                    print(f"Error processing files for PR {pr_number}: {e}")
+
+        return all_file_data
 
     def calculate_age(self, created_at):
         now = datetime.utcnow()
@@ -392,8 +366,128 @@ class dataExtraction:
         age = now - created_at
         return age.total_seconds() / 3600
 
+    def calculate_pr_quality(self, repo_info) -> list:
+        """
+        Calculates PR quality for all pull requests using the GitHub API.
+        """
+        # Add headers
+        all_pr_quality_data = [[
+            "PR Number",
+            "Linked Issues",
+            "Total Reviews",
+            "Total Review Comments",
+            "Merge Time (seconds)",
+            "Long-Open PR",
+            "Participants",
+            "Reverted PR",
+            "Test Coverage Additions",
+            "Code Churn"
+        ]]
 
-    def extract_issue_tracking_data(self, repo_info) -> list or None:
+        page_no = 0
+        while True:
+            page_no += 1
+            base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls?state=all&sort=created&direction=asc&page={page_no}'
+            headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token else {}
+            headers['Accept'] = 'application/vnd.github.v3+json'
+
+            response = requests.get(base_url, headers=headers)
+            if response.status_code != 200:
+                print(f"Failed to fetch PRs. Status code: {response.status_code}")
+                break
+
+            prs = response.json()
+            if not prs:
+                break
+
+            for pr in prs:
+                try:
+                    pr_number = pr['number']
+                    print(f"Processing quality metrics for PR: {pr_number}")
+
+                    # Initialize counters
+                    linked_issues = 0
+                    total_reviews = 0
+                    total_review_comments = 0
+                    merge_time = 0
+                    long_open_pr = 0
+                    participants = 0
+                    reverted_pr = 0
+                    test_coverage_added = 0
+                    churn = 0
+
+                    # Fetch detailed PR data
+                    pr_url = f"https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls/{pr_number}"
+                    pr_response = requests.get(pr_url, headers=headers)
+                    if pr_response.status_code != 200:
+                        print(f"Failed to fetch details for PR {pr_number}. Skipping.")
+                        continue
+                    pr_details = pr_response.json()
+
+                    # Linked Issues
+                    linked_issue = self.get_linked_issue_from_pr(pr_details)
+                    if linked_issue:
+                        linked_issues += 1
+
+                    # Reviews
+                    reviews_url = f"{pr_url}/reviews"
+                    reviews_response = requests.get(reviews_url, headers=headers)
+                    if reviews_response.status_code == 200:
+                        reviews = reviews_response.json()
+                        total_reviews += len(reviews)
+                        total_review_comments += sum(review['body'].count('\n') for review in reviews if 'body' in review)
+
+                    # Merge Time
+                    if pr_details.get('merged_at') and pr_details.get('created_at'):
+                        created_at = datetime.strptime(pr_details['created_at'], '%Y-%m-%dT%H:%M:%SZ')
+                        merged_at = datetime.strptime(pr_details['merged_at'], '%Y-%m-%dT%H:%M:%SZ')
+                        merge_time = (merged_at - created_at).total_seconds()
+                        if merge_time > 30 * 24 * 3600:  # PR open for over 30 days
+                            long_open_pr += 1
+
+                    # Participants
+                    comments_url = f"{pr_url}/comments"
+                    comments_response = requests.get(comments_url, headers=headers)
+                    if comments_response.status_code == 200:
+                        comments = comments_response.json()
+                        participants = len(set(comment['user']['login'] for comment in comments if 'user' in comment))
+
+                    # Reverted PR
+                    if pr_details['title'].lower().startswith('revert'):
+                        reverted_pr += 1
+
+                    # Test Coverage Additions
+                    files_url = f"{pr_url}/files"
+                    files_response = requests.get(files_url, headers=headers)
+                    if files_response.status_code == 200:
+                        files = files_response.json()
+                        if any('test' in file['filename'].lower() for file in files):
+                            test_coverage_added += 1
+
+                    # Code Churn
+                    churn = pr_details.get('additions', 0) + pr_details.get('deletions', 0)
+
+                    # Append row data
+                    all_pr_quality_data.append([
+                        pr_number,
+                        linked_issues,
+                        total_reviews,
+                        total_review_comments,
+                        merge_time,
+                        long_open_pr,
+                        participants,
+                        reverted_pr,
+                        test_coverage_added,
+                        churn
+                    ])
+
+                except Exception as e:
+                    print(f"Error processing quality metrics for PR {pr_number}: {e}")
+
+        return all_pr_quality_data
+
+
+    def extract_issue_tracking_data(self, repo_info) -> list:
         '''
         Extracts issue tracking data from the repository using the GitHub API
         '''
@@ -405,7 +499,7 @@ class dataExtraction:
         issue_categories = set()
 
         while True:
-            base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/issues?state=all&page={page_no}'
+            base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/issues?state=all&sort=created&direction=asc&page={page_no}'
             page_no += 1
 
             #headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token is not None else {}
@@ -460,11 +554,10 @@ class dataExtraction:
 
         return [param_names, extracted_data]
     
-    def extract_pull_request_data(self, repo_info, csv_filename: str) -> list or None:
+    def extract_pull_request_data(self, repo_info, csv_filename: str, to_return: bool) -> list or None:
         '''
         Extracts pull request data from the repository using the GitHub API
         '''
-
         # Create folder if it doesn't exist
         if not os.path.exists('ExtractedData'):
             os.makedirs('ExtractedData')
@@ -473,86 +566,90 @@ class dataExtraction:
 
         with open(file_path, 'w', newline='') as csv_file:
             csv_writer = csv.writer(csv_file)
-            csv_writer.writerow([
-                'PR Number',
-                'PR State',
-                'created_at',
-                'updated_at',
-                'closed_at',
+
+            # Define header for pull request metadata
+            pr_headers = [
+                'PR Number', 
+                'PR State', 
+                'created_at', 
+                'updated_at', 
+                'closed_at', 
                 'merged_at',
-                'PR age',
-                'Number of Labels',
-                'Label Names',
+                'PR age', 
+                'Number of Labels', 
+                'Label Names', 
                 'Milestone Open Issues',
-                'Milestone Closed Issues',
-                'Head Repo Open Issues Count',
+                'Milestone Closed Issues', 
+                'Head Repo Open Issues Count', 
                 'Head Repo Open Issues',
-                'Base Repo Open Issues Count',
-                'Base Repo Open Issues',
+                'Base Repo Open Issues Count', 
+                'Base Repo Open Issues', 
                 'Number of Assignees',
-                'Number of Requested Reviewers',
-                'Number of Requested Teams',
-                'Commit Frequency',
-                'Average Commit Size',
-                'Total Commits',
-                'Total Lines Changed Based On Commits',
-                'Total Lines Added Based On Commits',
-                'Total Lines Deleted  Based On Commits',
-                'Total Contributors Based On Commits',
-                'Total Comment Count Based On Commits',
-                'Total Files Changed Based On Commits',
-                'Rate of Commits',
-                'Rate of Lines Changed Based On Commits',
-                'Rate of Contributors Based On Commits',
-                'Rate of Comment Count Based On Commits',
-                'Total Files Changed Based On Files',
-                'Total Lines Added Based On Files',
-                'Total Lines Deleted Based On Files',
-                'Total Changes Based On Files',
-                'Total Added Files Based On Files',
-                'Total Modified Files Based On Files',
-                'Total Removed Files Based On Files',
-                'Total Renamed Files Based On Files',
-                'Total Copied Files Based On Files',
-                'Rate of Changes Based On Files',
-                'Rate of Added Files Based On Files',
-                'Rate of Modified Files Based On Files',
-                'Rate of Removed Files Based On Files',
-                'Rate of Renamed Files Based On Files',
-                'Rate of Copied Files Based On Files'
-            ])
+                'Number of Requested Reviewers', 
+                'Number of Requested Teams'
+            ]
 
+            # Get headers from commit and file data functions
+            commit_data = self.extract_commit_data_per_pr(repo_info)
+            file_data = self.extract_file_data_per_pr(repo_info)
+
+            # Check if commit or file data is empty
+            if not commit_data or not file_data:
+                print("No data extracted for commits or files.")
+                return
+
+            # Extract headers and skip the first element (headers) in rows
+            commit_headers, commit_rows = commit_data[0], commit_data[1:]
+            file_headers, file_rows = file_data[0], file_data[1:]
+
+            # Combine all headers
+            combined_headers = pr_headers + commit_headers[1:] + file_headers[1:]
+            csv_writer.writerow(combined_headers)
+
+            # Start fetching PR data
             page_no = 0
-
             while True:
                 page_no += 1
-                base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls?state=all&page={page_no}'
-                
-                headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token is not None else {}
+                base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls?state=all&sort=created&direction=asc&page={page_no}'
+
+                headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token else {}
                 headers['Accept'] = 'application/vnd.github.v3+json'
-                
+
                 response = requests.get(base_url, headers=headers)
+
+                aggregated_results = [[combined_headers]]
 
                 if response.status_code == 200:
                     prs = response.json()
-                    
+
+                    # Stop if no more PRs
                     if len(prs) == 0:
                         break
 
                     for pr in prs:
                         try:
                             print(f"Extracting data for PR: {pr['number']}")
-                            commit_frequency = 0
-                            pr_age = self.calculate_age(pr['created_at'])
-                            file_data = self.extract_file_data_per_pr(repo_info, pr['number'])
-                            commit_data = self.extract_commit_data_per_pr(repo_info, pr['number'])
 
-                            commit_frequency = commit_data[1]['total_commits'] / pr_age
-                            average_commit_size = commit_data[1]['total_lines_changed'] / file_data[1][0] if file_data[1][0] != 0 else 0
-                            
+                            # Calculate PR-specific data
+                            pr_age = self.calculate_age(pr['created_at'])
                             label_names = ",".join(label['name'] for label in pr['labels'])
 
-                            csv_writer.writerow([
+                            # Find matching commit and file data
+                            commit_row = next((row for row in commit_rows if row[0] == pr['number']), None)
+                            file_row = next((row for row in file_rows if row[0] == pr['number']), None)
+
+                            # Handle missing rows
+                            if not commit_row:
+                                commit_row = [''] * (len(commit_headers) - 1)
+                            else:
+                                commit_row = commit_row[1:]  # Remove PR Number
+
+                            if not file_row:
+                                file_row = [''] * (len(file_headers) - 1)
+                            else:
+                                file_row = file_row[1:]  # Remove PR Number
+
+                            current_results = [
                                 pr['number'],
                                 pr['state'],
                                 pr['created_at'],
@@ -562,44 +659,23 @@ class dataExtraction:
                                 pr_age,
                                 len(pr['labels']),
                                 label_names,
-                                pr['milestone']['open_issues'] if pr['milestone'] is not None else 0,
-                                pr['milestone']['closed_issues'] if pr['milestone'] is not None else 0,
+                                pr['milestone']['open_issues'] if pr['milestone'] else 0,
+                                pr['milestone']['closed_issues'] if pr['milestone'] else 0,
                                 pr['head']['repo']['open_issues_count'],
                                 pr['head']['repo']['open_issues'],
                                 pr['base']['repo']['open_issues_count'],
                                 pr['base']['repo']['open_issues'],
                                 len(pr['assignees']),
                                 len(pr['requested_reviewers']),
-                                len(pr['requested_teams']),
-                                commit_frequency,
-                                average_commit_size,
-                                commit_data[1]['total_commits'],
-                                commit_data[1]['total_lines_changed'],
-                                commit_data[1]['total_lines_added'],
-                                commit_data[1]['total_lines_deleted'],
-                                commit_data[1]['total_contributors'],
-                                commit_data[1]['total_comment_count'],
-                                commit_data[1]['total_files_changed'],
-                                commit_data[1]['rate_of_commits'],
-                                commit_data[1]['rate_of_lines_changed'],
-                                commit_data[1]['rate_of_contributors'],
-                                commit_data[1]['rate_of_comment_count'],
-                                file_data[1][0],
-                                file_data[1][1],
-                                file_data[1][2],
-                                file_data[1][3],
-                                file_data[1][4],
-                                file_data[1][5],
-                                file_data[1][6],
-                                file_data[1][7],
-                                file_data[1][8],
-                                file_data[1][9],
-                                file_data[1][10],
-                                file_data[1][11], 
-                                file_data[1][12],
-                                file_data[1][13], 
-                                file_data[1][14]
-                            ])
+                                len(pr['requested_teams'])
+                            ] + commit_row + file_row
+
+                            if to_return:
+                                aggregated_results += current_results
+                            else:
+                                # Write row to CSV
+                                csv_writer.writerow(current_results)
+
                         except Exception as e:
                             print(f"Error processing PR {pr['number']}: {e}")
                             continue  # Skip to the next PR if an error occurs
@@ -611,7 +687,11 @@ class dataExtraction:
 
         print("Successfully extracted pull request data.")
 
-    def extract_branch_data(self, repo_info) -> list or None:
+        if to_return:
+            return aggregated_results
+
+
+    def extract_branch_data(self, repo_info) -> list:
         '''
         Extracts branch data from the repository using PyGithub
         '''
@@ -636,89 +716,84 @@ class dataExtraction:
             print(f"Failed to fetch branch data: {e}")
             return [[], []]
     
-    def get_linked_issue_from_pr(self, pr: PullRequest) -> Issue or None:
-        '''
-        Check if the given pr has a linked issue.
-        '''
-        events_pages: PaginatedList[TimelineEvent] = pr.as_issue().get_timeline()
-        pg_num = 0
-        while events_pages.get_page(pg_num):
-            page = events_pages.get_page(pg_num)
-            pg_num += 1
-            for e in page:
-                if str(e.event) == 'cross-referenced':
-                    if e.source and e.source.issue:
-                        return e.source.issue
-        
-        return None
-    
-    def calculate_pr_quality(self, repo_info, total_prs: int, pr_numbers: list) -> dict:
-        '''
-        Calculates PR quality based on various metrics such as reviews, merge time and code churn.
-        '''
-        github_object = Github() if repo_info.repo_token is None else Github(auth=Auth.Token(repo_info.repo_token))
-        repo = github_object.get_repo(f"{repo_info.repo_owner}/{repo_info.repo_name}")
+    def get_linked_issue_from_pr(self, repo_info) -> list:
+        """
+        Extracts linked issue data for all pull requests in the repository using the GitHub API.
+        """
+        # Add headers
+        all_linked_issues = [[
+            'PR Number',
+            'Linked Issue Number',
+            'Linked Issue Title'
+        ]]
 
-        prs_with_issues = 0
-        total_reviews = 0
-        total_review_comments = 0
-        total_merge_time = 0
-        long_open_prs = 0
-        total_participants = 0
-        reverted_prs = 0
-        pr_with_tests_added = 0
-        total_churn = 0
+        page_no = 0
+        while True:
+            page_no += 1
+            base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls?state=all&sort=created&direction=asc&page={page_no}'
+            headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token else {}
+            headers['Accept'] = 'application/vnd.github.v3+json'
 
-        for pr_number in pr_numbers:
-            pr: PullRequest = repo.get_pull(number=pr_number)
-            issue_linked_to_pr = self.get_linked_issue_from_pr(pr)
-            if issue_linked_to_pr is not None:
-                prs_with_issues += 1
+            response = requests.get(base_url, headers=headers)
+            if response.status_code != 200:
+                print(f"Failed to fetch PRs. Status code: {response.status_code}")
+                break
 
-            # Review Metrics
-            reviews = pr.get_reviews()
-            total_reviews += reviews.totalCount
-            total_review_comments += sum(review.body.count('\n') for review in reviews)
+            prs = response.json()
+            if not prs:
+                break
 
-            # Merge Time
-            if pr.merged_at and pr.created_at:
-                merge_time = (pr.merged_at - pr.created_at).total_seconds()
-                total_merge_time += merge_time
-                if merge_time > 30 * 24 * 3600:  # PR open for over 30 days
-                    long_open_prs += 1
+            for pr in prs:
+                try:
+                    pr_number = pr['number']
+                    print(f"Processing linked issues for PR: {pr_number}")
 
-            # Engagement Metrics
-            participants = len(set([comment.user.login for comment in pr.get_comments()]))
-            total_participants += participants
+                    timeline_page_no = 0
+                    linked_issue = None
+                    while True:
+                        timeline_page_no += 1
+                        timeline_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/issues/{pr_number}/timeline?page={timeline_page_no}'
+                        timeline_headers = headers.copy()
+                        timeline_headers['Accept'] = 'application/vnd.github.mockingbird-preview+json'
 
-            # Reverted PRs
-            if pr.title.lower().startswith('revert'):
-                reverted_prs += 1
+                        timeline_response = requests.get(timeline_url, headers=timeline_headers)
+                        if timeline_response.status_code != 200:
+                            break
 
-            # Testing Metrics
-            if 'test' in pr.changed_files.lower():  
-                pr_with_tests_added += 1
+                        events = timeline_response.json()
+                        if not events:
+                            break
 
-            # Churn Metrics
-            total_churn += pr.additions + pr.deletions
+                        for event in events:
+                            if event.get('event') == 'cross-referenced':
+                                source = event.get('source', {})
+                                issue = source.get('issue')
+                                if issue:
+                                    linked_issue = issue
+                                    break
+                        if linked_issue:
+                            break
 
-        # Aggregating Metrics
-        pr_quality_metrics = {
-            'Linked Issues Percentage': prs_with_issues / total_prs,
-            'Average Reviews per PR': total_reviews / total_prs,
-            'Average Review Comments per PR': total_review_comments / total_reviews if total_reviews else 0,
-            'Average Merge Time (seconds)': total_merge_time / total_prs,
-            'Long-Open PRs Percentage': long_open_prs / total_prs,
-            'Average Participants per PR': total_participants / total_prs,
-            'Reverted PRs Percentage': reverted_prs / total_prs,
-            'PRs with Test Coverage Additions': pr_with_tests_added / total_prs,
-            'Average Code Churn per PR': total_churn / total_prs,
-        }
+                    if linked_issue:
+                        all_linked_issues.append([
+                            pr_number,
+                            linked_issue['number'],
+                            linked_issue.get('title', 'No Title')
+                        ])
+                    else:
+                        all_linked_issues.append([
+                            pr_number,
+                            None,
+                            None
+                        ])
 
-        return pr_quality_metrics
+                except Exception as e:
+                    print(f"Error processing linked issues for PR {pr_number}: {e}")
+
+        return all_linked_issues
 
     
-    def extract_data_commit_contributor(self, pr_number: int):
+    def extract_data_commit_contributor(self):
         '''
         Extracts commit and contributor data from all the repository using the GitHub API and pydriller
         '''
@@ -728,100 +803,83 @@ class dataExtraction:
             param_names = []
             extracted_data = []
             
+            # Commit and contributor data
             commit_and_contributor_data = self.extract_commit_and_contributor_data(repo_info)
-            pr_data = self.extract_commit_data_per_pr(repo_info, pr_number)
 
-            param_names = commit_and_contributor_data[0] + pr_data[0]
-            extracted_data = commit_and_contributor_data[1] + pr_data[1]
+            # PR data
+            pr_data = self.extract_commit_data_per_pr(repo_info)
 
-        self.write_to_csv_and_save([param_names, extracted_data], csv_filename, 'ExtractedData')
+            # Handle case when no PRs are found
+            if pr_data is None:
+                pr_data = [[], []]  # Empty structure to avoid errors
 
-    def extract_general_overview(self, repo_info, pr_number: int):
+            # Flatten PR data
+            pr_param_names = []
+            pr_extracted_data = []
+
+            pr_param_names += pr_data[0]  # Append parameter names
+
+            # for pr_index in range(1, len(pr_data)):
+            for pr_info in pr_data[1:]:
+                pr_extracted_data += pr_info
+                # pr_extracted_data += pr_data[pr_index]  # Append data
+
+            # Combine all extracted data
+            param_names = commit_and_contributor_data[0] + pr_param_names
+            extracted_data = commit_and_contributor_data[1] + pr_extracted_data
+
+            # Write to CSV
+            self.write_to_csv_and_save([param_names, extracted_data], csv_filename, 'ExtractedData')
+
+    def extract_general_overview(self):
         '''
         Extracts a general overview of the repository like file data, issue tracking data, linked issue with PRs, and branch data
         '''
 
-        for repo_info in self.repo_infos:
-            csv_filename = repo_info.repo_owner + '_' + repo_info.repo_name + '.csv'
-
-            param_names = []
-            extracted_data = []
-
-            # Extract different data components
-            file_data_per_pr = self.extract_file_data_per_pr(repo_info, pr_number)
-            issue_tracking_data = self.extract_issue_tracking_data(repo_info)
-            branch_data = self.extract_branch_data(repo_info)
-
-            # Combine parameter names and data
-            param_names = file_data_per_pr[0] + issue_tracking_data[0] + branch_data[0]
-            extracted_data = file_data_per_pr[1] + issue_tracking_data[1] + branch_data[1]
+        for repo_info in self.repo_infos:  # Loop through each repository
+            csv_filename = f"{repo_info.repo_owner}_{repo_info.repo_name}.csv"
 
             try:
-                # Authenticate GitHub API
-                github_object = Github() if repo_info.repo_token is None else Github(auth=Auth.Token(repo_info.repo_token))
-                repo = github_object.get_repo(f"{repo_info.repo_owner}/{repo_info.repo_name}")
-                
-                # Fetch PR details
-                try:
-                    pr = repo.get_pull(pr_number)
-                except UnknownObjectException:
-                    print(f"No PR exists with number {pr_number} in the repo: {repo_info.repo_name}. Skipping this PR.")
-                    continue  # Skip to the next PR without crashing
 
-                # Process linked issues if PR exists
-                linked_issue = self.get_linked_issue_from_pr(pr)
+                # Extract repository-level data
+                file_data_per_pr = self.extract_file_data_per_pr(repo_info)
+                issue_tracking_data = self.extract_issue_tracking_data(repo_info)
+                branch_data = self.extract_branch_data(repo_info)
+                linked_data = self.get_linked_issue_from_pr(repo_info)
 
-                if linked_issue:
-                    linked_issue_data = [
-                        linked_issue.number,
-                        linked_issue.state,
-                        linked_issue.title,
-                        linked_issue.created_at,
-                        linked_issue.updated_at,
-                        linked_issue.closed_at,
-                        [label.name for label in linked_issue.labels],
-                        linked_issue.comments,
-                    ]
+                # Combine parameter names
+                param_names = (
+                    file_data_per_pr[0] +
+                    issue_tracking_data[0] +
+                    branch_data[0] +
+                    linked_data[0]
+                )
 
-                    linked_issue_params = [
-                        'linked_issue_number',
-                        'linked_issue_state',
-                        'linked_issue_title',
-                        'linked_issue_created_at',
-                        'linked_issue_updated_at',
-                        'linked_issue_closed_at',
-                        'linked_issue_labels',
-                        'linked_issue_comments',
-                    ]
+                print("step 1 done")
 
-                else:
-                    # If no linked issue exists, add placeholder values
-                    linked_issue_data = [None] * 8
-                    linked_issue_params = [
-                        'linked_issue_number',
-                        'linked_issue_state',
-                        'linked_issue_title',
-                        'linked_issue_created_at',
-                        'linked_issue_updated_at',
-                        'linked_issue_closed_at',
-                        'linked_issue_labels',
-                        'linked_issue_comments',
-                    ]
+                all_data = [] 
+                print("step 2 done")
 
-                # Add linked issue data
-                param_names += linked_issue_params
-                extracted_data += linked_issue_data
+                # Extract PR-specific metrics
+                pr_data = file_data_per_pr[1] + issue_tracking_data[1] + branch_data[1] + linked_data[1]
+                print("step 3 done")
+
+                # Replace None with empty strings for CSV compatibility
+                pr_data = [value if value is not None else "" for value in pr_data]
+
+                all_data.append(pr_data)
+                print(param_names)
+                print(all_data)
+
+                # Write all collected data to the CSV
+            
 
             except Exception as e:
-                print(f"An error occurred while processing PR {pr_number} in repo {repo_info.repo_name}: {e}")
-                continue  # Skip this PR and move to the next one
-
-            # Write data to CSV
-            self.write_to_csv_and_save([param_names, extracted_data], csv_filename, 'ExtractedData')
+                print(f"An error occurred while processing repo {repo_info.repo_name}: {e}")
+                continue
+            self.write_to_csv_and_save([param_names, all_data], csv_filename, 'ExtractedData')
 
         print("General overview extraction completed.")
-
-
 
     def extract_data_pr(self):
         '''
@@ -832,122 +890,97 @@ class dataExtraction:
             csv_filename = repo_info.repo_owner + '_' + repo_info.repo_name + '.csv'
             print(f"PR data is stored in the following file: {csv_filename}")
             print("Extracting pull request data...")
-            self.extract_pull_request_data(repo_info, csv_filename)
+            self.extract_pull_request_data(repo_info, csv_filename, False)
             print("")
 
             print("Extraction Complete.")
             print("")
 
-    def extract_aggregate_metrics(self, repo_info, pr_number: int):
+    def extract_aggregate_metrics(self):
         """
         Extracts aggregate metrics from commit, file, and pull request data and saves them into a CSV file.
         """
-        try:
-            # Authenticate GitHub API
-            github_object = Github() if repo_info.repo_token is None else Github(auth=Auth.Token(repo_info.repo_token))
-            repo = github_object.get_repo(f"{repo_info.repo_owner}/{repo_info.repo_name}")
-            
-            
+
+        for repo_info in self.repo_infos:
             try:
-                pr = repo.get_pull(pr_number)
-            except UnknownObjectException:
-                print(f"PR {pr_number} does not exist in the repo: {repo_info.repo_name}. Skipping.")
-                return
-            
-            # Extract commit data
-            commit_data = self.extract_commit_data_per_pr(repo_info, pr_number)
-            if not commit_data[1]:
-                print(f"No commit data found for PR {pr_number}. Skipping.")
-                return
-            
-            # Extract file data
-            file_data = self.extract_file_data_per_pr(repo_info, pr_number)
-            if not file_data[1]: 
-                print(f"No file data found for PR {pr_number}. Skipping.")
-                return
+                # Prepare CSV file name
+                csv_filename = f"{repo_info.repo_owner}_{repo_info.repo_name}_PR.csv"
 
-            # Extract only required values from file data
-            file_aggregate = file_data[1][9:] 
+                    # Extract commit data
+                commit_data = self.extract_commit_data_per_pr(repo_info) # this should not be in the loop
+                if not commit_data[1]:
+                    print(f"No commit data found for PR. Skipping.")
+                    # continue
 
-            # Extract pull request quality metrics
-            pr_data = self.extract_pull_request_data(repo_info, pr_number)
-            if not pr_data[1]:
-                print(f"No PR data found for PR {pr_number}. Skipping.")
-                return
+                print("got commit data")
 
-            # Define PR Quality Metrics labels
-            pr_quality_metrics = [
-                "Commit Frequency",
-                "Average Commit Size",
-                "Total Commits",
-                "Total Lines Changed Based On Commits",
-                "Total Lines Added Based On Commits",
-                "Total Lines Deleted Based On Commits",
-                "Total Contributors Based On Commits",
-                "Total Comment Count Based On Commits",
-                "Total Files Changed Based On Commits",
-                "Rate of Commits",
-                "Rate of Lines Changed Based On Commits",
-                "Rate of Contributors Based On Commits",
-                "Rate of Comment Count Based On Commits",
-                "Total Files Changed Based On Files",
-                "Total Lines Added Based On Files",
-                "Total Lines Deleted Based On Files",
-                "Total Changes Based On Files",
-                "Total Added Files Based On Files",
-                "Total Modified Files Based On Files",
-                "Total Removed Files Based On Files",
-                "Total Renamed Files Based On Files",
-                "Total Copied Files Based On Files",
-                "Rate of Changes Based On Files",
-                "Rate of Added Files Based On Files",
-                "Rate of Modified Files Based On Files",
-                "Rate of Removed Files Based On Files",
-                "Rate of Renamed Files Based On Files",
-                "Rate of Copied Files Based On Files"
-            ]
+                # Extract file data
+                file_data = self.extract_file_data_per_pr(repo_info) # same issue
+                if not file_data[1]:
+                    print(f"No file data found for PR. Skipping.")
+                    # continue
 
-            # Combine parameter names and data
-            parameter_names = (
-                commit_data[0]  # Commit metrics
-                + file_data[0][9:]  # File metrics (only rates)
-                + pr_quality_metrics  # PR quality metrics
-            )
+                print("got file data")
+                    
+                # print("2nd print statement")
+                    
+                # Extract only required values from file data
+                file_aggregate = file_data[1][9:]
 
-            extracted_data = (
-                commit_data[1]  # Commit values
-                + file_aggregate  # File values (only rates)
-                + pr_data[1]  # PR quality metric values
-            )
+                # print(file_aggregate)
 
-            # Prepare CSV file name
-            csv_filename = f"{repo_info.repo_owner}_{repo_info.repo_name}_PR_{pr_number}.csv"
+                print("starting pr extraction")
 
-            # Write data to CSV
-            self.write_to_csv_and_save([parameter_names, extracted_data], csv_filename, 'ExtractedData')
+                # Extract pull request data
+                pr_data = self.extract_pull_request_data(repo_info, csv_filename, True) # same issue
+                print("pr data got")
+                print(pr_data)
+                if not pr_data[1]:
+                    print(f"No PR data found for PR. Skipping.")
+                    # continue
 
-        except Exception as e:
-            print(f"An error occurred while processing PR {pr_number} in repo {repo_info.repo_name}: {e}")
-            return
+                print("got pr data")
+                    
+                # print(pr_data)
+                print("DO i reach here")
 
-        print(f"Aggregate metrics extraction completed for PR {pr_number}.")
+                # Process PR quality metrics for all PRs
+                pr_quality_data = self.calculate_pr_quality(repo_info)
+                if not pr_quality_data[1]:
+                    print(f"No PR Quality data found for PR. Skipping.")
+                    # continue
 
+                print("got pr quality data")
 
+                # Combine all metrics
+                parameter_names = (
+                    commit_data[0] + file_data[0][9:] + pr_data[0] + pr_quality_data[0]
+                )
+                extracted_data = (
+                    commit_data[1] + file_aggregate + pr_data[1] + pr_quality_data[1]
+                )
+
+                    # Write data to CSV
+                # self.write_to_csv_and_save([parameter_names, extracted_data], csv_filename, 'ExtractedData')
+
+            except Exception as e:
+                print(f"An error occurred while processing repo {repo_info.repo_name}: {e}")
+                continue
+
+        print("Aggregate metrics extraction completed.")
 
 
 def main():
-    repo_name = ['geo-centroid']
+    repo_name = ['translate_lib']
     repo_owners = ['aadityayadav']
     repo_tokens = [GITHUB_TOKEN]
-    pr_number = 1
 
     extraction = dataExtraction(repo_name, repo_owners, repo_tokens)
 
-    for repo_info in extraction.repo_infos:
-        # extraction.extract_general_overview(repo_info, pr_number)
-         extraction.extract_aggregate_metrics(repo_info, pr_number)
+    # extraction.extract_general_overview()
+    extraction.extract_aggregate_metrics()
 
-    # extraction.extract_data_commit_contributor(pr_number)
+    # extraction.extract_data_commit_contributor()
 
     # extraction.extract_data_pr()
 
