@@ -373,7 +373,6 @@ class dataExtraction:
         # Add headers
         all_pr_quality_data = [[
             "PR Number",
-            # "Linked Issues",
             "Total Reviews",
             "Total Review Comments",
             "Merge Time (seconds)",
@@ -386,9 +385,6 @@ class dataExtraction:
 
         page_no = 0
         while True:
-            # print(repo_info)
-            # print(repo_info.repo_owner)
-            # print(repo_info.repo_name)
             page_no += 1
             base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls?state=all&sort=created&direction=asc&page={page_no}'
             headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token else {}
@@ -409,7 +405,6 @@ class dataExtraction:
                     print(f"Processing quality metrics for PR: {pr_number}")
 
                     # Initialize counters
-                    # linked_issues = 0
                     total_reviews = 0
                     total_review_comments = 0
                     merge_time = 0
@@ -427,13 +422,6 @@ class dataExtraction:
                         continue
                     pr_details = pr_response.json()
 
-                    # print("This is good up till now")
-                    # Linked Issues 
-                    # linked_issue = self.get_linked_issue_from_pr(pr_details)
-                    # if linked_issue:
-                    #     linked_issues += 1
-                    
-                    # print("is this the issue")
                     # Reviews
                     reviews_url = f"{pr_url}/reviews"
                     reviews_response = requests.get(reviews_url, headers=headers)
@@ -471,11 +459,9 @@ class dataExtraction:
 
                     # Code Churn
                     churn = pr_details.get('additions', 0) + pr_details.get('deletions', 0)
-                    # print("Almost Done")
                     # Append row data
                     all_pr_quality_data.append([
                         pr_number,
-                        # linked_issues,
                         total_reviews,
                         total_review_comments,
                         merge_time,
@@ -558,23 +544,20 @@ class dataExtraction:
         ]
 
         return [param_names, extracted_data]
-    
+     
     def extract_pull_request_data(self, repo_info, csv_filename: str, to_return: bool) -> list or None:
         '''
         Extracts pull request data from the repository using the GitHub API
         '''
-        # Create folder if it doesn't exist
         if not os.path.exists('ExtractedData'):
             os.makedirs('ExtractedData')
 
         file_path = os.path.join('ExtractedData', csv_filename)
-
-        aggregated_results = []  # Move this here to store data before returning
+        aggregated_results = []
 
         with open(file_path, 'w', newline='') as csv_file:
             csv_writer = csv.writer(csv_file)
 
-            # Define header for pull request metadata
             pr_headers = [
                 'PR Number', 'PR State', 'created_at', 'updated_at', 'closed_at', 'merged_at',
                 'PR age', 'Number of Labels', 'Label Names', 'Milestone Open Issues',
@@ -583,53 +566,49 @@ class dataExtraction:
                 'Number of Requested Reviewers', 'Number of Requested Teams'
             ]
 
-            # Get headers from commit and file data functions
             commit_data = self.extract_commit_data_per_pr(repo_info)
             file_data = self.extract_file_data_per_pr(repo_info)
 
-            # Extract headers and skip the first element (headers) in rows
             commit_headers, commit_rows = commit_data[0], commit_data[1:]
             file_headers, file_rows = file_data[0], file_data[1:]
 
-            # Combine all headers
-            combined_headers = pr_headers + commit_headers[1:] + file_headers[1:]
+            duplicate_fields = {'Total Files Changed', 'Total Lines Added', 'Total Lines Deleted'}
+
+            filtered_file_indices = [i for i, h in enumerate(file_headers) if h not in duplicate_fields or i == 0]
+            filtered_file_headers = [file_headers[i] for i in filtered_file_indices]
+            filtered_file_rows = [[row[i] for i in filtered_file_indices] for row in file_rows]
+
+            combined_headers = pr_headers + commit_headers[1:] + filtered_file_headers[1:]
             csv_writer.writerow(combined_headers)
+            aggregated_results.append(combined_headers)
 
-            aggregated_results.append(combined_headers)  # Add headers to the list
-
-            # Start fetching PR data
             page_no = 0
             while True:
                 page_no += 1
                 base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls?state=all&sort=created&direction=asc&page={page_no}'
-
                 headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token else {}
                 headers['Accept'] = 'application/vnd.github.v3+json'
-
                 response = requests.get(base_url, headers=headers)
 
                 if response.status_code == 200:
                     prs = response.json()
-
-                    # Stop if no more PRs
                     if not prs:
                         break
 
                     for pr in prs:
                         try:
                             print(f"Extracting data for PR: {pr['number']}")
-
-                            # Calculate PR-specific data
                             pr_age = self.calculate_age(pr['created_at'])
                             label_names = ",".join(label['name'] for label in pr['labels'])
 
-                            # Find matching commit and file data
                             commit_row = next((row for row in commit_rows if row[0] == pr['number']), None)
                             file_row = next((row for row in file_rows if row[0] == pr['number']), None)
 
-                            # Handle missing rows
                             commit_row = commit_row[1:] if commit_row else [''] * (len(commit_headers) - 1)
-                            file_row = file_row[1:] if file_row else [''] * (len(file_headers) - 1)
+                            filtered_file_row = (
+                                [file_row[i] for i in filtered_file_indices[1:]] if file_row
+                                else [''] * (len(filtered_file_headers) - 1)
+                            )
 
                             current_results = [
                                 pr['number'], pr['state'], pr['created_at'], pr['updated_at'],
@@ -639,14 +618,14 @@ class dataExtraction:
                                 pr['head']['repo']['open_issues_count'], pr['head']['repo']['open_issues'],
                                 pr['base']['repo']['open_issues_count'], pr['base']['repo']['open_issues'],
                                 len(pr['assignees']), len(pr['requested_reviewers']), len(pr['requested_teams'])
-                            ] + commit_row + file_row
+                            ] + commit_row + filtered_file_row
 
                             aggregated_results.append(current_results)
                             csv_writer.writerow(current_results)
 
                         except Exception as e:
                             print(f"Error processing PR {pr['number']}: {e}")
-                            continue  # Skip to the next PR if an error occurs
+                            continue
 
                 else:
                     print(f"Failed to fetch Pull Requests on page: {page_no}. Status code: {response.status_code}. Repo: {repo_info.repo_name}")
@@ -658,6 +637,7 @@ class dataExtraction:
 
         if to_return:
             return aggregated_results
+
 
 
 
@@ -780,27 +760,27 @@ class dataExtraction:
             # Commit and contributor data
             commit_and_contributor_data = self.extract_commit_and_contributor_data(repo_info)
 
-            # PR data
-            pr_data = self.extract_commit_data_per_pr(repo_info)
+            # # PR data
+            # pr_data = self.extract_commit_data_per_pr(repo_info)
 
-            # Handle case when no PRs are found
-            if pr_data is None:
-                pr_data = [[], []]  # Empty structure to avoid errors
+            # # Handle case when no PRs are found
+            # if pr_data is None:
+            #     pr_data = [[], []]  # Empty structure to avoid errors
 
-            # Flatten PR data
-            pr_param_names = []
-            pr_extracted_data = []
+            # # Flatten PR data
+            # pr_param_names = []
+            # pr_extracted_data = []
 
-            pr_param_names += pr_data[0]  # Append parameter names
+            # pr_param_names += pr_data[0]  # Append parameter names
 
-            # for pr_index in range(1, len(pr_data)):
-            for pr_info in pr_data[1:]:
-                pr_extracted_data += pr_info
-                # pr_extracted_data += pr_data[pr_index]  # Append data
+            # # for pr_index in range(1, len(pr_data)):
+            # for pr_info in pr_data[1:]:
+            #     pr_extracted_data += pr_info
+            #     # pr_extracted_data += pr_data[pr_index]  # Append data
 
             # Combine all extracted data
-            param_names = commit_and_contributor_data[0] + pr_param_names
-            extracted_data = commit_and_contributor_data[1] + pr_extracted_data
+            param_names = commit_and_contributor_data[0]
+            extracted_data = commit_and_contributor_data[1]
 
             # Write to CSV
             self.write_to_csv_and_save([param_names, extracted_data], csv_filename, 'ExtractedData')
@@ -851,7 +831,7 @@ class dataExtraction:
             except Exception as e:
                 print(f"An error occurred while processing repo {repo_info.repo_name}: {e}")
                 continue
-            self.write_to_csv_and_save([param_names, all_data], csv_filename, 'ExtractedData')
+            self.write_to_csv_and_save([param_names] + all_data, csv_filename, 'ExtractedData')
 
         print("General overview extraction completed.")
 
@@ -884,49 +864,24 @@ class dataExtraction:
                 if not commit_data[1]:
                     print(f"No commit data found for PR. Skipping.")
 
-                print("got commit data")
-
                 # Extract file data
                 file_data = self.extract_file_data_per_pr(repo_info)
                 if not file_data[1]:
                     print(f"No file data found for PR. Skipping.")
 
-                print("got file data")
-
-                print("starting pr extraction")
-
                 # Extract pull request data
                 pr_data = self.extract_pull_request_data(repo_info, csv_filename, True)
-                print("pr data got")
-                print(pr_data)
                 if not pr_data[0]:
                     print(f"No PR data found for PR. Skipping.")
-
-                print("got pr data")
-                    
-                # print(pr_data)
-                print("DO i reach here")
 
                 # Process PR quality metrics for all PRs
                 pr_quality_data = self.calculate_pr_quality(repo_info)
                 if not pr_quality_data[1]:
                     print(f"No PR Quality data found for PR. Skipping.")
 
-                print("got pr quality data")
-
-                print(pr_data)
-                print("next")
-                print(pr_data[0])
-                # print(file_data[0][9:])
-                print("pr")
-                print(pr_data[1:])
-                # print(pr_data[1:])
-                print("quality")
-                # print(pr_quality_data[1:])
-
                 # Combine all metrics 
-                parameter_names = commit_data[0] + file_data[0] + pr_data[0] + pr_quality_data[0]
-                extracted_data = commit_data[1:] + file_data[1:] + pr_data[1:] + pr_quality_data[1:]
+                # parameter_names = commit_data[0] + file_data[0][5:] + pr_data[0] + pr_quality_data[0]
+                # extracted_data = commit_data[1:] + file_data[1][5:] + pr_data[1:] + pr_quality_data[1:]
 
             except Exception as e:
                 print(f"An error occurred while processing repo {repo_info.repo_name}: {e}")
@@ -942,7 +897,7 @@ def main():
 
     extraction = dataExtraction(repo_name, repo_owners, repo_tokens)
 
-    # extraction.extract_general_overview()
+    extraction.extract_general_overview()
     # extraction.extract_aggregate_metrics()
 
     # extraction.extract_data_commit_contributor()
