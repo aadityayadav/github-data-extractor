@@ -141,12 +141,12 @@ class dataExtraction:
                 reset_time = rate_limit['rate']['reset']
 
                 if remaining > 0:
-                    break  # Enough quota, continue
+                    break
                 else:
                     wait_time = reset_time - time.time()
                     print(f"Rate limit exceeded. Waiting {wait_time:.2f} seconds...")
-                    time.sleep(wait_time + 1)  # Wait for reset
-                    self.switch_token()  # Switch to next token
+                    time.sleep(wait_time + 1)
+                    self.switch_token()
             else:
                 print("Error fetching rate limit. Retrying...")
                 time.sleep(10)
@@ -679,14 +679,11 @@ class dataExtraction:
 
         page_no = 0
         while True:
-            # print("started linked issues from pr extraction")
             print(repo_info.repo_owner, repo_info.repo_name)
             page_no += 1
             base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls?state=all&sort=created&direction=asc&page={page_no}'
             headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token else {}
             headers['Accept'] = 'application/vnd.github.v3+json'
-
-            # print("reaching base url and header stuff")
 
             response = requests.get(base_url, headers=headers)
             if response.status_code != 200:
@@ -760,23 +757,6 @@ class dataExtraction:
             # Commit and contributor data
             commit_and_contributor_data = self.extract_commit_and_contributor_data(repo_info)
 
-            # # PR data
-            # pr_data = self.extract_commit_data_per_pr(repo_info)
-
-            # # Handle case when no PRs are found
-            # if pr_data is None:
-            #     pr_data = [[], []]  # Empty structure to avoid errors
-
-            # # Flatten PR data
-            # pr_param_names = []
-            # pr_extracted_data = []
-
-            # pr_param_names += pr_data[0]  # Append parameter names
-
-            # # for pr_index in range(1, len(pr_data)):
-            # for pr_info in pr_data[1:]:
-            #     pr_extracted_data += pr_info
-            #     # pr_extracted_data += pr_data[pr_index]  # Append data
 
             # Combine all extracted data
             param_names = commit_and_contributor_data[0]
@@ -809,25 +789,15 @@ class dataExtraction:
                     linked_data[0]
                 )
 
-                print("step 1 done")
-
                 all_data = [] 
-                print("step 2 done")
 
                 # Extract PR-specific metrics
                 pr_data = file_data_per_pr[1] + issue_tracking_data[1] + branch_data[1] + linked_data[1]
-                print("step 3 done")
 
                 # Replace None with empty strings for CSV compatibility
                 pr_data = [value if value is not None else "" for value in pr_data]
 
                 all_data.append(pr_data)
-                print(param_names)
-                print(all_data)
-
-                # Write all collected data to the CSV
-            
-
             except Exception as e:
                 print(f"An error occurred while processing repo {repo_info.repo_name}: {e}")
                 continue
@@ -897,8 +867,8 @@ def main():
 
     extraction = dataExtraction(repo_name, repo_owners, repo_tokens)
 
-    extraction.extract_general_overview()
-    # extraction.extract_aggregate_metrics()
+    # extraction.extract_general_overview()
+    extraction.extract_aggregate_metrics()
 
     # extraction.extract_data_commit_contributor()
 
