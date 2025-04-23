@@ -765,45 +765,93 @@ class dataExtraction:
             # Write to CSV
             self.write_to_csv_and_save([param_names, extracted_data], csv_filename, 'ExtractedData')
 
+    # def extract_general_overview(self):
+    #     '''
+    #     Extracts a general overview of the repository like file data, issue tracking data, linked issue with PRs, and branch data
+    #     '''
+
+    #     for repo_info in self.repo_infos:  # Loop through each repository
+    #         csv_filename = f"{repo_info.repo_owner}_{repo_info.repo_name}.csv"
+
+    #         try:
+
+    #             # Extract repository-level data
+    #             file_data_per_pr = self.extract_file_data_per_pr(repo_info)
+    #             issue_tracking_data = self.extract_issue_tracking_data(repo_info)
+    #             branch_data = self.extract_branch_data(repo_info)
+    #             linked_data = self.get_linked_issue_from_pr(repo_info)
+
+    #             # Combine parameter names
+    #             param_names = (
+    #                 file_data_per_pr[0] +
+    #                 issue_tracking_data[0] +
+    #                 branch_data[0] +
+    #                 linked_data[0]
+    #             )
+
+    #             all_data = [] 
+
+    #             # Extract PR-specific metrics
+    #             pr_data = file_data_per_pr[1] + issue_tracking_data[1] + branch_data[1] + linked_data[1]
+
+    #             # Replace None with empty strings for CSV compatibility
+    #             pr_data = [value if value is not None else "" for value in pr_data]
+
+    #             all_data.append(pr_data)
+    #         except Exception as e:
+    #             print(f"An error occurred while processing repo {repo_info.repo_name}: {e}")
+    #             continue
+    #         self.write_to_csv_and_save([param_names] + all_data, csv_filename, 'ExtractedData')
+
+    #     print("General overview extraction completed.")
+
     def extract_general_overview(self):
         '''
-        Extracts a general overview of the repository like file data, issue tracking data, linked issue with PRs, and branch data
+        Extracts a general overview of the repository like file data, issue tracking data, linked issue with PRs, and branch data.
         '''
 
-        for repo_info in self.repo_infos:  # Loop through each repository
+        for repo_info in self.repo_infos:
             csv_filename = f"{repo_info.repo_owner}_{repo_info.repo_name}.csv"
-
             try:
-
-                # Extract repository-level data
-                file_data_per_pr = self.extract_file_data_per_pr(repo_info)
-                issue_tracking_data = self.extract_issue_tracking_data(repo_info)
+                # Get data
+                file_data = self.extract_file_data_per_pr(repo_info)[1:]  # Skip headers
+                linked_issues = self.get_linked_issue_from_pr(repo_info)[1:]  # Skip headers
+                issue_data = self.extract_issue_tracking_data(repo_info)
                 branch_data = self.extract_branch_data(repo_info)
-                linked_data = self.get_linked_issue_from_pr(repo_info)
 
-                # Combine parameter names
+                # Build a dictionary for linked issue lookup by PR number
+                linked_dict = {row[0]: row[1:] for row in linked_issues}
+
+                # Combine column headers
                 param_names = (
-                    file_data_per_pr[0] +
-                    issue_tracking_data[0] +
-                    branch_data[0] +
-                    linked_data[0]
+                    self.extract_file_data_per_pr(repo_info)[0] +
+                    ['Linked Issue Number', 'Linked Issue Title'] +
+                    issue_data[0] +
+                    branch_data[0]
                 )
 
-                all_data = [] 
+                all_data = []
 
-                # Extract PR-specific metrics
-                pr_data = file_data_per_pr[1] + issue_tracking_data[1] + branch_data[1] + linked_data[1]
+                for row in file_data:
+                    pr_number = row[0]
+                    linked = linked_dict.get(pr_number, [None, None])
 
-                # Replace None with empty strings for CSV compatibility
-                pr_data = [value if value is not None else "" for value in pr_data]
+                    merged_row = (
+                        row +
+                        linked +
+                        issue_data[1] +
+                        branch_data[1]
+                    )
+                    all_data.append([val if val is not None else "" for val in merged_row])
 
-                all_data.append(pr_data)
+                self.write_to_csv_and_save([param_names] + all_data, csv_filename, 'ExtractedData')
+
             except Exception as e:
                 print(f"An error occurred while processing repo {repo_info.repo_name}: {e}")
                 continue
-            self.write_to_csv_and_save([param_names] + all_data, csv_filename, 'ExtractedData')
 
         print("General overview extraction completed.")
+
 
     def extract_data_pr(self):
         '''
@@ -868,11 +916,11 @@ def main():
     extraction = dataExtraction(repo_name, repo_owners, repo_tokens)
 
     # extraction.extract_general_overview()
-    extraction.extract_aggregate_metrics()
+    # extraction.extract_aggregate_metrics()
 
     # extraction.extract_data_commit_contributor()
 
-    # extraction.extract_data_pr()
+    extraction.extract_data_pr()
 
     
 
