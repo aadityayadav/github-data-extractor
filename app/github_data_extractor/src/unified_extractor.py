@@ -7,13 +7,9 @@ import requests
 import time
 import csv
 import os
-from dotenv import load_dotenv
-import os
 from github.GithubException import UnknownObjectException
 
-load_dotenv()
 
-GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 
 class repoInfo:
     def __init__(self, repo_name: str, repo_owner: str, repo_token: str = None):
@@ -862,24 +858,3 @@ class dataExtraction:
                 continue
 
         print("Aggregate metrics extraction completed.")
-
-
-def main():
-    repo_name = ['translate_lib']
-    repo_owners = ['aadityayadav']
-    repo_tokens = [GITHUB_TOKEN]
-
-    extraction = dataExtraction(repo_name, repo_owners, repo_tokens)
-
-    # extraction.extract_general_overview()
-    # extraction.extract_aggregate_metrics()
-
-    # extraction.extract_data_commit_contributor()
-
-    # extraction.extract_data_pr()
-
-    
-
-
-if __name__ == "__main__":
-    main()

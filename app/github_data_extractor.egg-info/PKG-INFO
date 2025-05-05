@@ -1,0 +1,121 @@
+Metadata-Version: 2.2
+Name: github_data_extractor
+Version: 0.0.10
+Summary: A package to extract GitHub repository insights
+Home-page: https://github.com/aadityayadav/github_data_extractor
+Author: Aaditya Yadav/ Vibhak Golchha
+Author-email: aadityayadav2003@gmail.com, vibhakgolchha@gmail.com
+License: MIT
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3.5
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.5
+Description-Content-Type: text/markdown
+Requires-Dist: pydriller>=1.9
+Requires-Dist: PyGithub>=1.54
+Requires-Dist: requests>=2.20.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: twine>=4.0.2; extra == "dev"
+Requires-Dist: python-dotenv>=1.0.0; extra == "dev"
+Requires-Dist: wheel>=0.37.0; extra == "dev"
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: license
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
+## Introduction
+A Python package to extract GitHub repository insights including commit history, pull request analysis, contributor trends, and overall repository health. Designed to simplify engineering reporting and performance tracking.
+<br>
+<br>
+<br>
+
+## Requirements
+- Python 3.5 or later
+- [Google Maps API Key](https://developers.google.com/maps/documentation/embed/get-api-key)
+<br>
+<br>
+
+
+## Installation
+```
+pip install github-data-extractor
+```
+<br>
+<br>
+
+
+## Usage and Documentation
+This example shows how to use the geocentroid package.
+```
+from github_data_extractor import dataExtraction
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
+
+def main():
+    repo_name = ['translate_lib']
+    repo_owners = ['aadityayadav']
+    repo_tokens = [GITHUB_TOKEN]
+
+    extraction = dataExtraction(repo_name, repo_owners, repo_tokens)
+
+    # method 1    
+    extraction.extract_general_overview()
+    # method 2
+    extraction.extract_aggregate_metrics()
+    # method 3
+    extraction.extract_data_commit_contributor()
+    # method 4
+    extraction.extract_data_pr()
+
+if __name__ == "__main__":
+    main()
+```
+
+> All functions take no parameters directly.  
+> You must provide `repo_name`, `repo_owners`, and `repo_tokens` as **lists**, so you can extract data from multiple repositories at once.
+<br>  
+
+### 1) `extract_general_overview()`  
+Fetches a high-level snapshot of the repository:
+- Branch information (total branches, last updated)
+- Linked vs unlinked issues
+- File data associated with each pull request  
+<br>  
+
+### 2) `extract_aggregate_metrics()`  
+Provides an overview of project health using aggregated statistics:
+- Commit activity over time
+- File modification frequency
+- Pull request volume and lifecycle
+- Pull request quality: reviews, size, and merge times  
+<br>  
+
+### 3) `extract_data_commit_contributor()`  
+Gathers contributor and commit behavior:
+- Commit counts by contributor
+- Time-based commit activity
+- New vs returning contributor patterns  
+<br>  
+
+### 4) `extract_data_pr()`  
+Detailed pull request analytics:
+- PR open/merge/close timestamps
+- Review histories and discussions
+- Issue linkages, milestone tagging, and contributor-level PR trends  
+<br>  
+<br>  
+
+**Returns:**
+- Automatically saves a CSV under a folder `ExtractedData` containing repo metrics.
+<br>  

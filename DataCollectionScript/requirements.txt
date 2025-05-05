@@ -1,3 +1,0 @@
-pydriller
-requests
-PyGithub

@@ -1,0 +1,9 @@
+pydriller>=1.9
+PyGithub>=1.54
+requests>=2.20.0
+
+[dev]
+pytest>=7.0
+twine>=4.0.2
+python-dotenv>=1.0.0
+wheel>=0.37.0
