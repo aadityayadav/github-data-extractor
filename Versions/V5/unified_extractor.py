@@ -141,12 +141,12 @@ class dataExtraction:
                 reset_time = rate_limit['rate']['reset']
 
                 if remaining > 0:
-                    break  # Enough quota, continue
+                    break
                 else:
                     wait_time = reset_time - time.time()
                     print(f"Rate limit exceeded. Waiting {wait_time:.2f} seconds...")
-                    time.sleep(wait_time + 1)  # Wait for reset
-                    self.switch_token()  # Switch to next token
+                    time.sleep(wait_time + 1)
+                    self.switch_token()
             else:
                 print("Error fetching rate limit. Retrying...")
                 time.sleep(10)
@@ -679,14 +679,11 @@ class dataExtraction:
 
         page_no = 0
         while True:
-            # print("started linked issues from pr extraction")
             print(repo_info.repo_owner, repo_info.repo_name)
             page_no += 1
             base_url = f'https://api.github.com/repos/{repo_info.repo_owner}/{repo_info.repo_name}/pulls?state=all&sort=created&direction=asc&page={page_no}'
             headers = {'Authorization': f'token {repo_info.repo_token}'} if repo_info.repo_token else {}
             headers['Accept'] = 'application/vnd.github.v3+json'
-
-            # print("reaching base url and header stuff")
 
             response = requests.get(base_url, headers=headers)
             if response.status_code != 200:
@@ -752,7 +749,7 @@ class dataExtraction:
         Extracts commit and contributor data from all the repository using the GitHub API and pydriller
         '''
         for repo_info in self.repo_infos:
-            csv_filename = repo_info.repo_owner + '_' + repo_info.repo_name + '.csv'
+            csv_filename = repo_info.repo_owner + '_' + repo_info.repo_name + '_commit_contributor.csv'
             
             param_names = []
             extracted_data = []
@@ -760,23 +757,6 @@ class dataExtraction:
             # Commit and contributor data
             commit_and_contributor_data = self.extract_commit_and_contributor_data(repo_info)
 
-            # # PR data
-            # pr_data = self.extract_commit_data_per_pr(repo_info)
-
-            # # Handle case when no PRs are found
-            # if pr_data is None:
-            #     pr_data = [[], []]  # Empty structure to avoid errors
-
-            # # Flatten PR data
-            # pr_param_names = []
-            # pr_extracted_data = []
-
-            # pr_param_names += pr_data[0]  # Append parameter names
-
-            # # for pr_index in range(1, len(pr_data)):
-            # for pr_info in pr_data[1:]:
-            #     pr_extracted_data += pr_info
-            #     # pr_extracted_data += pr_data[pr_index]  # Append data
 
             # Combine all extracted data
             param_names = commit_and_contributor_data[0]
@@ -787,53 +767,51 @@ class dataExtraction:
 
     def extract_general_overview(self):
         '''
-        Extracts a general overview of the repository like file data, issue tracking data, linked issue with PRs, and branch data
+        Extracts a general overview of the repository like file data, issue tracking data, linked issue with PRs, and branch data.
         '''
 
-        for repo_info in self.repo_infos:  # Loop through each repository
-            csv_filename = f"{repo_info.repo_owner}_{repo_info.repo_name}.csv"
-
+        for repo_info in self.repo_infos:
+            csv_filename = f"{repo_info.repo_owner}_{repo_info.repo_name}_general.csv"
             try:
-
-                # Extract repository-level data
-                file_data_per_pr = self.extract_file_data_per_pr(repo_info)
-                issue_tracking_data = self.extract_issue_tracking_data(repo_info)
+                # Get data
+                file_data = self.extract_file_data_per_pr(repo_info)[1:]  # Skip headers
+                linked_issues = self.get_linked_issue_from_pr(repo_info)[1:]  # Skip headers
+                issue_data = self.extract_issue_tracking_data(repo_info)
                 branch_data = self.extract_branch_data(repo_info)
-                linked_data = self.get_linked_issue_from_pr(repo_info)
 
-                # Combine parameter names
+                # Build a dictionary for linked issue lookup by PR number
+                linked_dict = {row[0]: row[1:] for row in linked_issues}
+
+                # Combine column headers
                 param_names = (
-                    file_data_per_pr[0] +
-                    issue_tracking_data[0] +
-                    branch_data[0] +
-                    linked_data[0]
+                    self.extract_file_data_per_pr(repo_info)[0] +
+                    ['Linked Issue Number', 'Linked Issue Title'] +
+                    issue_data[0] +
+                    branch_data[0]
                 )
 
-                print("step 1 done")
+                all_data = []
 
-                all_data = [] 
-                print("step 2 done")
+                for row in file_data:
+                    pr_number = row[0]
+                    linked = linked_dict.get(pr_number, [None, None])
 
-                # Extract PR-specific metrics
-                pr_data = file_data_per_pr[1] + issue_tracking_data[1] + branch_data[1] + linked_data[1]
-                print("step 3 done")
+                    merged_row = (
+                        row +
+                        linked +
+                        issue_data[1] +
+                        branch_data[1]
+                    )
+                    all_data.append([val if val is not None else "" for val in merged_row])
 
-                # Replace None with empty strings for CSV compatibility
-                pr_data = [value if value is not None else "" for value in pr_data]
-
-                all_data.append(pr_data)
-                print(param_names)
-                print(all_data)
-
-                # Write all collected data to the CSV
-            
+                self.write_to_csv_and_save([param_names] + all_data, csv_filename, 'ExtractedData')
 
             except Exception as e:
                 print(f"An error occurred while processing repo {repo_info.repo_name}: {e}")
                 continue
-            self.write_to_csv_and_save([param_names] + all_data, csv_filename, 'ExtractedData')
 
         print("General overview extraction completed.")
+
 
     def extract_data_pr(self):
         '''
@@ -841,7 +819,7 @@ class dataExtraction:
         '''
         for repo_info in self.repo_infos:
             print(f"Extracting data for repo: {repo_info.repo_name}")
-            csv_filename = repo_info.repo_owner + '_' + repo_info.repo_name + '.csv'
+            csv_filename = repo_info.repo_owner + '_' + repo_info.repo_name + '_PR.csv'
             print(f"PR data is stored in the following file: {csv_filename}")
             print("Extracting pull request data...")
             self.extract_pull_request_data(repo_info, csv_filename, False)
@@ -857,7 +835,7 @@ class dataExtraction:
 
         for repo_info in self.repo_infos:
                 # Prepare CSV file name
-            csv_filename = f"{repo_info.repo_owner}_{repo_info.repo_name}_PR.csv"
+            csv_filename = f"{repo_info.repo_owner}_{repo_info.repo_name}_aggregate.csv"
             try:
                 # Extract commit data
                 commit_data = self.extract_commit_data_per_pr(repo_info)
@@ -879,10 +857,6 @@ class dataExtraction:
                 if not pr_quality_data[1]:
                     print(f"No PR Quality data found for PR. Skipping.")
 
-                # Combine all metrics 
-                # parameter_names = commit_data[0] + file_data[0][5:] + pr_data[0] + pr_quality_data[0]
-                # extracted_data = commit_data[1:] + file_data[1][5:] + pr_data[1:] + pr_quality_data[1:]
-
             except Exception as e:
                 print(f"An error occurred while processing repo {repo_info.repo_name}: {e}")
                 continue
@@ -897,7 +871,7 @@ def main():
 
     extraction = dataExtraction(repo_name, repo_owners, repo_tokens)
 
-    extraction.extract_general_overview()
+    # extraction.extract_general_overview()
     # extraction.extract_aggregate_metrics()
 
     # extraction.extract_data_commit_contributor()
